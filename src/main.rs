@@ -109,6 +109,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     }
 
     let mut peers: HashMap<PeerId, Vec<Multiaddr>> = HashMap::new();
+    let mut received_messages = 0;
+
     loop {
         match swarm.select_next_some().await {
             SwarmEvent::NewListenAddr { listener_id, address } => info!("NewListenAddr: {listener_id:?} | {address:?}"),
@@ -141,8 +143,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         
                         let local_peer_id = local_key.public().to_peer_id();
                         let message = GreeRequest{ message: format!("Send message from: {local_peer_id}: Hello gaess") };
-                        let request_id = swarm.behaviour_mut().send_message(&peer_id, message);
-                        info!("RequestID: {request_id}")
+                        loop_send_message(&mut swarm, peer_id, GreeRequest{ message: "Hello gaess".to_string() }).await;
                     }
 
                     info!("Available peers: {peers:?}");                        
@@ -153,56 +154,37 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 RequestResponseEvent::Message { peer, message } => {
                     match message {
                         RequestResponseMessage::Request { request_id, request, channel} => {
-                            info!("RequestResponseEvent::Message::Request -> PeerID: {peer} | RequestID: {request_id} | RequestMessage: {request:?}");
+                            received_messages += 1;
+                            info!("Received messages: {received_messages}");
                             let local_peer_id = local_key.public().to_peer_id();
                             let response = GreetResponse{ message: format!("Response from: {local_peer_id}: hello too").to_string() };
                             let result = swarm.behaviour_mut().send_response(channel, response);
                             if result.is_err() {
                                 let err = result.unwrap_err();
-                                error!("Error sending response: {err:?}")
+                                // error!("Error sending response: {err:?}")
                             } else {
-                                info!("Sending a message was success")
+                                // info!("Sending a message was success")
                             }
                         },
-                        RequestResponseMessage::Response { request_id, response } => {
-                            info!("RequestResponseEvent::Message::Response -> PeerID: {peer} | RequestID: {request_id} | Response: {response:?}")
-                        }
+                        _ => {}
                     }
                 },
                 RequestResponseEvent::InboundFailure { peer, request_id, error } => {
                     warn!("RequestResponseEvent::InboundFailure -> PeerID: {peer} | RequestID: {request_id} | Error: {error}")
                 },
-                RequestResponseEvent::ResponseSent { peer, request_id } => {
-                    info!("RequestResponseEvent::ResponseSent -> PeerID: {peer} | RequestID: {request_id}")
-                },
                 RequestResponseEvent::OutboundFailure { peer, request_id, error } => {
-                    warn!("RequestResponseEvent::OutboundFailure -> PeerID: {peer} | RequestID: {request_id} | Error: {error}")
+                    error!("RequestResponseEvent::OutboundFailure -> PeerID: {peer} | RequestID: {request_id} | Error: {error}")
                 }
-            },
-            SwarmEvent::Behaviour(AgentEvent::Kad(event)) => match event {
-                KadEvent::ModeChanged { new_mode } => info!("KadEvent:ModeChanged: {new_mode}"),
-                KadEvent::RoutablePeer { peer, address } => info!("KadEvent:RoutablePeer: {peer} | {address}"),
-                KadEvent::PendingRoutablePeer { peer, address } => info!("KadEvent:PendingRoutablePeer: {peer} | {address}"),
-                KadEvent::InboundRequest { request } => info!("KadEvent:InboundRequest: {request:?}"),
-                KadEvent::RoutingUpdated { 
-                    peer, 
-                    is_new_peer, 
-                    addresses, 
-                    bucket_range, 
-                    old_peer } => {
-                        info!("KadEvent:RoutingUpdated: {peer} | IsNewPeer? {is_new_peer} | {addresses:?} | {bucket_range:?} | OldPeer: {old_peer:?}");
-                    },
-                KadEvent::OutboundQueryProgressed { 
-                    id, 
-                    result, 
-                    stats, 
-                    step } => {
-
-                    info!("KadEvent:OutboundQueryProgressed: ID: {id:?} | Result: {result:?} | Stats: {stats:?} | Step: {step:?}")
-                },
                 _ => {}
-            }
+            },
             _ => {}
         }
     }
+}
+
+async fn loop_send_message(swarm: &mut libp2p::Swarm<AgentBehavior>, peer_id: PeerId, message: GreeRequest) {
+    (0..500).for_each(|_| {
+        let request_id = swarm.behaviour_mut().send_message(&peer_id, message.clone());
+        info!("RequestID: {request_id}")
+    });
 }
